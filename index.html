@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Vehicle Market Velocity Explorer</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0f1117; color: #e0e0e0; }
+
+.header { padding: 20px 32px 12px; border-bottom: 1px solid #23262f; }
+.header h1 { font-size: 22px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+
+.controls {
+  display: flex; align-items: center; gap: 16px; padding: 12px 32px;
+  background: #181a20; border-bottom: 1px solid #23262f; flex-wrap: wrap;
+}
+.control-group { display: flex; align-items: center; gap: 6px; }
+.control-group label { font-size: 13px; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+
+select, input[type=range], input[type=number] {
+  background: #23262f; color: #e0e0e0; border: 1px solid #333; border-radius: 6px;
+  padding: 6px 10px; font-size: 14px; outline: none;
+}
+select:focus, input:focus { border-color: #5b8def; }
+input[type=range] { width: 200px; padding: 0; }
+input[type=number] { width: 70px; }
+
+.toggle-group { display: flex; gap: 0; }
+.toggle-btn {
+  padding: 6px 16px; font-size: 13px; font-weight: 500; cursor: pointer;
+  background: #23262f; border: 1px solid #333; color: #888; transition: all 0.15s;
+}
+.toggle-btn:first-child { border-radius: 6px 0 0 6px; }
+.toggle-btn:last-child { border-radius: 0 6px 6px 0; }
+.toggle-btn.active { background: #2a4a8a; color: #fff; border-color: #5b8def; }
+
+.chart-container { position: relative; padding: 16px 32px 32px; }
+
+svg { overflow: visible; }
+
+.quadrant-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+  fill: #444; pointer-events: none;
+}
+
+.dot { cursor: pointer; }
+
+.tooltip {
+  position: absolute; pointer-events: none; background: #1e2028; border: 1px solid #3a3f4b;
+  border-radius: 8px; padding: 10px 14px; font-size: 13px; line-height: 1.6;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: none; z-index: 100;
+  max-width: 300px;
+}
+.tooltip .tt-label { font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 4px; }
+.tooltip .tt-row { color: #aaa; }
+.tooltip .tt-val { color: #5b8def; font-weight: 500; }
+
+.axis-label { fill: #888; font-size: 13px; font-weight: 500; }
+.grid line { stroke: #1e2028; }
+.tick text { fill: #666; font-size: 12px; }
+.tick line { stroke: #2a2d35; }
+.domain { stroke: #2a2d35; }
+
+.quadrant-line { stroke: #5b8def; stroke-width: 1; stroke-dasharray: 6,4; opacity: 0.4; }
+
+.search-box {
+  background: #23262f; color: #e0e0e0; border: 1px solid #333; border-radius: 6px;
+  padding: 6px 10px; font-size: 14px; outline: none; width: 180px;
+}
+.search-box::placeholder { color: #555; }
+.search-box:focus { border-color: #5b8def; }
+
+.period-display { font-size: 16px; font-weight: 600; color: #5b8def; min-width: 100px; }
+
+.play-btn {
+  background: #2a4a8a; color: #fff; border: 1px solid #5b8def; border-radius: 6px;
+  padding: 6px 14px; font-size: 13px; cursor: pointer; font-weight: 500;
+}
+.play-btn:hover { background: #3a5a9a; }
+
+.legend-hint { font-size: 12px; color: #555; padding: 4px 32px; }
+
+.highlight-dot { stroke: #fff; stroke-width: 2; }
+
+.filter-bar {
+  display: none; align-items: center; gap: 8px; padding: 8px 32px;
+  background: #1a1d25; border-bottom: 1px solid #23262f; flex-wrap: wrap;
+}
+.filter-bar.visible { display: flex; }
+.filter-bar .filter-label { font-size: 13px; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+.brand-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #2a4a8a; color: #fff; border-radius: 4px; padding: 3px 10px;
+  font-size: 13px; font-weight: 500;
+}
+.brand-tag .tag-x {
+  cursor: pointer; margin-left: 4px; opacity: 0.6; font-size: 15px;
+}
+.brand-tag .tag-x:hover { opacity: 1; }
+.clear-filter {
+  background: none; border: 1px solid #444; color: #888; border-radius: 4px;
+  padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+.clear-filter:hover { border-color: #888; color: #ccc; }
+
+.footnote {
+  padding: 24px 32px 20px; border-top: 1px solid #23262f; margin-top: 8px;
+}
+.footnote-content { max-width: 960px; }
+.footnote p { font-size: 12px; line-height: 1.7; color: #666; margin-bottom: 8px; }
+.footnote p strong { color: #888; }
+.footnote a { color: #5b8def; text-decoration: none; }
+.footnote a:hover { text-decoration: underline; }
+.footnote .copyright { color: #555; font-size: 11px; margin-top: 12px; margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Vehicle Market Velocity Explorer</h1>
+</div>
+
+<div class="controls">
+  <div class="control-group">
+    <label>View</label>
+    <div class="toggle-group" id="view-toggle">
+      <div class="toggle-btn active" data-mode="brands">Brands</div>
+      <div class="toggle-btn" data-mode="models">Models</div>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <label>Period</label>
+    <input type="range" id="period-slider" min="0" max="72" value="72">
+    <span class="period-display" id="period-label"></span>
+    <button class="play-btn" id="play-btn">▶ Play</button>
+  </div>
+
+  <div class="control-group">
+    <label>Min Active</label>
+    <input type="number" id="min-active" value="500" step="100" min="0">
+  </div>
+
+  <div class="control-group">
+    <label>Search</label>
+    <input type="text" class="search-box" id="search" placeholder="e.g. TOYOTA, PRIUS">
+  </div>
+
+  <div class="control-group">
+    <label>Scale</label>
+    <div class="toggle-group" id="scale-toggle">
+      <div class="toggle-btn active" data-scale="log">Log</div>
+      <div class="toggle-btn" data-scale="linear">Linear</div>
+    </div>
+  </div>
+</div>
+
+<div class="filter-bar" id="filter-bar">
+  <span class="filter-label">Filtered by:</span>
+  <span id="brand-tags"></span>
+  <button class="clear-filter" id="clear-filter">✕ Clear all</button>
+</div>
+
+<div class="legend-hint" id="hint-text">Point size = fleet size. Hover for details. Ctrl+click to select brands, then click any brand to drill down.</div>
+
+<div class="chart-container">
+  <svg id="chart"></svg>
+  <div class="tooltip" id="tooltip"></div>
+</div>
+
+<footer class="footnote">
+  <div class="footnote-content">
+    <p><strong>About this visualization:</strong> Market velocity measures how frequently vehicles change ownership, calculated as ownership transfers divided by active registered vehicles, normalized to a monthly rate. Market share represents each segment's proportion of total active vehicles. Data sourced from the Georgian Ministry of Internal Affairs vehicle registration database (<a href="https://police.ge" target="_blank">police.ge</a>), covering 2017–2025. Dot size reflects fleet size (number of active vehicles). Quadrant boundaries are set at the global median across all time periods. Use the period slider to track market dynamics over time, drill down from brands to models to manufacture years, and Ctrl+scroll to zoom (double-click to reset).</p>
+    <p class="copyright">&copy; 2025 Strata Labs. All rights reserved.</p>
+  </div>
+</footer>
+
+<script>
+const margin = { top: 40, right: 60, bottom: 70, left: 80 };
+let width, height;
+let data = null;
+let currentMode = 'brands';
+let currentScale = 'log';
+let playing = false;
+let playInterval = null;
+let selectedBrands = new Set();
+let selectedModels = new Set();  // For brand+model drill-down to years
+
+const svg = d3.select('#chart');
+const tooltip = d3.select('#tooltip');
+
+function resize() {
+  width = window.innerWidth - margin.left - margin.right - 64;
+  height = window.innerHeight - 300 - margin.top - margin.bottom;
+  height = Math.max(height, 400);
+  svg.attr('width', width + margin.left + margin.right)
+     .attr('height', height + margin.top + margin.bottom);
+  d3.select('#clip-rect').attr('width', width).attr('height', height);
+}
+resize();
+window.addEventListener('resize', () => { resize(); if (data) update(); });
+
+const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+// Clip path so dots don't overflow axes
+const clipId = 'chart-clip';
+svg.append('defs').append('clipPath').attr('id', clipId)
+  .append('rect').attr('id', 'clip-rect');
+
+const gridLayer = g.append('g').attr('class', 'grid');
+const quadrantLayer = g.append('g').attr('clip-path', `url(#${clipId})`);
+const dotLayer = g.append('g').attr('clip-path', `url(#${clipId})`);
+const axisXGroup = g.append('g');
+const axisYGroup = g.append('g');
+
+// Zoom state — manual domain-based zoom (no D3 zoom transform)
+let baseXScale = null, baseYScale = null;
+let baseXDomain = null, baseYDomain = null;
+let isPanning = false, panStartX = 0, panStartY = 0, panStartDomainX = null, panStartDomainY = null;
+
+function renderView() {
+  if (!baseXScale || !baseYScale) return;
+  const xz = baseXScale;
+  const yz = baseYScale;
+
+  // Axes
+  const logTV = (domain) => {
+    const [lo, hi] = domain;
+    const ticks = [];
+    for (let exp = -5; exp <= 4; exp++) {
+      for (const b of [1, 2, 5]) {
+        const v = b * Math.pow(10, exp);
+        if (v >= lo * 0.99 && v <= hi * 1.01) ticks.push(v);
+      }
+    }
+    return ticks;
+  };
+  const sf = d => {
+    if (d >= 1) return d3.format('.0f')(d) + '%';
+    if (d >= 0.1) return d3.format('.1f')(d) + '%';
+    if (d >= 0.01) return d3.format('.2f')(d) + '%';
+    return d3.format('.3f')(d) + '%';
+  };
+  let xAxis, yAxis;
+  if (currentScale === 'log') {
+    xAxis = d3.axisBottom(xz).tickValues(logTV(xz.domain())).tickFormat(sf);
+    yAxis = d3.axisLeft(yz).tickValues(logTV(yz.domain())).tickFormat(sf);
+  } else {
+    xAxis = d3.axisBottom(xz).ticks(8).tickFormat(d => d3.format('.2f')(d) + '%');
+    yAxis = d3.axisLeft(yz).ticks(6).tickFormat(d => d3.format('.2f')(d) + '%');
+  }
+  axisXGroup.call(xAxis);
+  axisXGroup.selectAll('.tick text').attr('transform', 'rotate(-35)').style('text-anchor', 'end');
+  axisYGroup.call(yAxis);
+
+  // Reposition dots
+  dotLayer.selectAll('.dot')
+    .attr('cx', d => xz(Math.max(d.velocity, 0.001)))
+    .attr('cy', d => yz(Math.max(d.market_share, 0.0001)));
+
+  // Reposition labels
+  const ss = dotLayer.__sizeScale;
+  dotLayer.selectAll('.dot-label')
+    .attr('x', d => xz(Math.max(d.velocity, 0.001)) + (ss ? ss(d.active) : 5) + 4)
+    .attr('y', d => yz(Math.max(d.market_share, 0.0001)) + 4);
+
+  // Quadrant lines
+  const domainKey = currentMode === 'model_years' ? 'model_years' : (currentMode === 'models' ? 'models' : 'brands');
+  const gd = globalDomains[domainKey] || {};
+  const medVel = gd.velMedian || 1, medShare = gd.shareMedian || 0.1;
+  quadrantLayer.selectAll('.quadrant-line').remove();
+  quadrantLayer.append('line').attr('class', 'quadrant-line')
+    .attr('x1', xz(medVel)).attr('x2', xz(medVel)).attr('y1', 0).attr('y2', height);
+  quadrantLayer.append('line').attr('class', 'quadrant-line')
+    .attr('x1', 0).attr('x2', width).attr('y1', yz(medShare)).attr('y2', yz(medShare));
+  const pad = 8, mx = xz(medVel), my = yz(medShare);
+  d3.select('#q-ll').attr('x', pad).attr('y', my + 20);
+  d3.select('#q-lh').attr('x', mx + pad).attr('y', my + 20);
+  d3.select('#q-hl').attr('x', pad).attr('y', my - pad);
+  d3.select('#q-hh').attr('x', mx + pad).attr('y', my - pad);
+}
+
+// --- Zoom: Ctrl+scroll to zoom, drag to pan, dblclick to reset ---
+function chartEl() { return document.getElementById('chart'); }
+
+function attachZoomHandlers() {
+  const el = chartEl();
+  el.addEventListener('wheel', function(e) {
+    if (!e.ctrlKey && !e.metaKey) return; // let page scroll through
+    e.preventDefault();
+    if (!baseXScale || !baseYScale) return;
+
+    const rect = el.getBoundingClientRect();
+    const mx = e.clientX - rect.left - margin.left;
+    const my = e.clientY - rect.top - margin.top;
+
+    const factor = e.deltaY < 0 ? 0.8 : 1.25; // scroll up = zoom in
+
+    // Get data values at mouse position
+    const xVal = baseXScale.invert(Math.max(0, Math.min(width, mx)));
+    const yVal = baseYScale.invert(Math.max(0, Math.min(height, my)));
+
+    // Zoom domains around mouse point
+    const [x0, x1] = baseXScale.domain();
+    const [y0, y1] = baseYScale.domain();
+
+    if (currentScale === 'log') {
+      const lx0 = Math.log(x0), lx1 = Math.log(x1), lxv = Math.log(xVal);
+      const ly0 = Math.log(y0), ly1 = Math.log(y1), lyv = Math.log(yVal);
+      const nlx0 = lxv + (lx0 - lxv) * factor;
+      const nlx1 = lxv + (lx1 - lxv) * factor;
+      const nly0 = lyv + (ly0 - lyv) * factor;
+      const nly1 = lyv + (ly1 - lyv) * factor;
+      baseXScale.domain([Math.exp(nlx0), Math.exp(nlx1)]);
+      baseYScale.domain([Math.exp(nly0), Math.exp(nly1)]);
+    } else {
+      baseXScale.domain([xVal + (x0 - xVal) * factor, xVal + (x1 - xVal) * factor]);
+      baseYScale.domain([yVal + (y0 - yVal) * factor, yVal + (y1 - yVal) * factor]);
+    }
+    renderView();
+  }, { passive: false });
+
+  // Pan: click and drag
+  el.addEventListener('mousedown', function(e) {
+    if (e.button !== 0) return;
+    // Only pan if zoomed in (domains differ from base)
+    if (!baseXDomain) return;
+    const [cx0, cx1] = baseXScale.domain();
+    const [bx0, bx1] = baseXDomain;
+    const isZoomed = Math.abs(cx1/cx0 - bx1/bx0) > 0.01 * (bx1/bx0);
+    if (!isZoomed) return;
+
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panStartDomainX = baseXScale.domain().slice();
+    panStartDomainY = baseYScale.domain().slice();
+    el.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (!isPanning) return;
+    const dx = e.clientX - panStartX;
+    const dy = e.clientY - panStartY;
+
+    if (currentScale === 'log') {
+      const lx0 = Math.log(panStartDomainX[0]), lx1 = Math.log(panStartDomainX[1]);
+      const ly0 = Math.log(panStartDomainY[0]), ly1 = Math.log(panStartDomainY[1]);
+      const ldx = -(dx / width) * (lx1 - lx0);
+      const ldy = (dy / height) * (ly0 - ly1); // inverted Y
+      baseXScale.domain([Math.exp(lx0 + ldx), Math.exp(lx1 + ldx)]);
+      baseYScale.domain([Math.exp(ly0 + ldy), Math.exp(ly1 + ldy)]);
+    } else {
+      const [sx0, sx1] = panStartDomainX;
+      const [sy0, sy1] = panStartDomainY;
+      const ddx = -(dx / width) * (sx1 - sx0);
+      const ddy = (dy / height) * (sy1 - sy0);
+      baseXScale.domain([sx0 + ddx, sx1 + ddx]);
+      baseYScale.domain([sy0 + ddy, sy1 + ddy]);
+    }
+    renderView();
+  });
+
+  window.addEventListener('mouseup', function() {
+    if (isPanning) {
+      isPanning = false;
+      const el = chartEl();
+      if (el) el.style.cursor = '';
+    }
+  });
+}
+
+g.append('text').attr('class', 'axis-label').attr('text-anchor', 'middle').attr('id', 'x-label');
+g.append('text').attr('class', 'axis-label').attr('text-anchor', 'middle').attr('id', 'y-label');
+
+const qLabels = [
+  { id: 'q-ll', text: 'Low Share · Low Velocity' },
+  { id: 'q-lh', text: 'Low Share · High Velocity' },
+  { id: 'q-hl', text: 'High Share · Low Velocity' },
+  { id: 'q-hh', text: 'High Share · High Velocity' },
+];
+qLabels.forEach(q => {
+  quadrantLayer.append('text').attr('class', 'quadrant-label').attr('id', q.id).text(q.text);
+});
+
+const brandColorScale = d3.scaleOrdinal(d3.schemeTableau10);
+
+function periodKey(p) { return p.year + '_' + p.period; }
+function periodLabel(p) {
+  if (p.period === 'annual') return p.year;
+  return `${p.year} ${p.period}`;
+}
+
+// --- Filter bar ---
+function updateFilterBar() {
+  const bar = document.getElementById('filter-bar');
+  const tags = document.getElementById('brand-tags');
+  if (selectedBrands.size === 0 && selectedModels.size === 0) {
+    bar.classList.remove('visible');
+    return;
+  }
+  bar.classList.add('visible');
+  tags.innerHTML = '';
+  selectedBrands.forEach(b => {
+    const tag = document.createElement('span');
+    tag.className = 'brand-tag';
+    tag.innerHTML = `${b}<span class="tag-x" data-type="brand" data-value="${b}">×</span>`;
+    tags.appendChild(tag);
+  });
+  selectedModels.forEach(m => {
+    const tag = document.createElement('span');
+    tag.className = 'brand-tag';
+    tag.style.background = '#2a6a3a';
+    tag.innerHTML = `${m}<span class="tag-x" data-type="model" data-value="${m}">×</span>`;
+    tags.appendChild(tag);
+  });
+  // Attach remove handlers
+  tags.querySelectorAll('.tag-x').forEach(x => {
+    x.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (x.dataset.type === 'brand') {
+        selectedBrands.delete(x.dataset.value);
+        // Also remove any models belonging to this brand
+        selectedModels.forEach(m => {
+          if (m.startsWith(x.dataset.value + ' ')) selectedModels.delete(m);
+        });
+        if (selectedBrands.size === 0) {
+          selectedModels.clear();
+          setMode('brands');
+        } else if (selectedModels.size === 0) {
+          setMode('models');
+        }
+      } else {
+        selectedModels.delete(x.dataset.value);
+        if (selectedModels.size === 0) {
+          setMode('models');
+        }
+      }
+      updateFilterBar();
+      update();
+    });
+  });
+}
+
+document.getElementById('clear-filter').addEventListener('click', () => {
+  selectedBrands.clear();
+  selectedModels.clear();
+  setMode('brands');
+  updateFilterBar();
+  update();
+});
+
+function setMode(mode) {
+  currentMode = mode;
+  // Reset zoom on mode change
+  baseXDomain = null;
+  baseYDomain = null;
+  document.querySelectorAll('#view-toggle .toggle-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  // Update hint text
+  const hint = document.getElementById('hint-text');
+  if (mode === 'brands') {
+    hint.textContent = 'Point size = fleet size. Hover for details. Ctrl+click to select brands, then click any brand to drill down.';
+  } else if (mode === 'model_years') {
+    hint.textContent = `Showing years for ${selectedModels.size} model(s). Click background to go back.`;
+  } else if (mode === 'models' && selectedBrands.size > 0) {
+    hint.textContent = `Showing models for ${selectedBrands.size} brand(s). Click a model to see years. Ctrl+click to select multiple models. Click background to go back.`;
+  } else if (mode === 'models') {
+    hint.textContent = 'Click a model to see years. Ctrl+click to select multiple models.';
+  } else {
+    hint.textContent = 'Point size = fleet size. Hover for details. Search to highlight specific entries.';
+  }
+}
+
+// --- Data ---
+function getItems() {
+  if (!data) return [];
+  const slider = document.getElementById('period-slider');
+  const idx = +slider.value;
+  const p = data.periods[idx];
+  const key = periodKey(p);
+
+  let items;
+  if (currentMode === 'model_years' && selectedModels.size > 0) {
+    // Drill-down level 3: years for selected models
+    items = (data.model_years[key] || []).filter(d => selectedModels.has(d.brand + ' ' + d.model));
+  } else if (currentMode === 'models' && selectedBrands.size > 0) {
+    // Drill-down level 2: models for selected brands
+    items = (data.models[key] || []).filter(d => selectedBrands.has(d.brand));
+  } else {
+    items = (currentMode === 'brands' ? data.brands[key] : data.models[key]) || [];
+  }
+
+  const minActive = +(document.getElementById('min-active').value) || 0;
+  return items.filter(d => d.active >= minActive);
+}
+
+function update() {
+  resize();
+  const items = getItems();
+  const slider = document.getElementById('period-slider');
+  const p = data.periods[+slider.value];
+  document.getElementById('period-label').textContent = periodLabel(p);
+
+  const searchTerm = document.getElementById('search').value.toUpperCase().trim();
+  const isDrillDown = (currentMode === 'models' && selectedBrands.size > 0) || currentMode === 'model_years';
+  const isYearView = currentMode === 'model_years';
+
+  // Scales — use global domains so axes stay fixed across periods
+  const domainKey = isYearView ? 'model_years' : (currentMode === 'models' ? 'models' : 'brands');
+  const gd = globalDomains[domainKey] || { velMin: 0.001, velMax: 10, shareMin: 0.001, shareMax: 10, activeMin: 1, activeMax: 1000 };
+
+  let xScale, yScale;
+  if (currentScale === 'log') {
+    xScale = d3.scaleLog().domain([Math.max(0.001, gd.velMin * 0.5), gd.velMax * 1.5]).range([0, width]);
+    yScale = d3.scaleLog().domain([Math.max(0.0001, gd.shareMin * 0.5), gd.shareMax * 1.5]).range([height, 0]);
+  } else {
+    xScale = d3.scaleLinear().domain([0, gd.velMax * 1.1]).range([0, width]);
+    yScale = d3.scaleLinear().domain([0, gd.shareMax * 1.1]).range([height, 0]);
+  }
+
+  // Size scale — also global
+  const sizeScale = d3.scaleSqrt()
+    .domain([gd.activeMin || 1, gd.activeMax || 1000])
+    .range([3, 24]);
+  dotLayer.__sizeScale = sizeScale;
+
+  // Store base scales and domains for zoom
+  baseXScale = xScale;
+  baseYScale = yScale;
+  if (!baseXDomain) baseXDomain = xScale.domain().slice();
+  if (!baseYDomain) baseYDomain = yScale.domain().slice();
+
+  axisXGroup.attr('transform', `translate(0,${height})`);
+  d3.select('#x-label').attr('x', width / 2).attr('y', height + 48).text('Monthly Velocity (%)');
+  d3.select('#y-label').attr('transform', 'rotate(-90)').attr('x', -height / 2).attr('y', -58).text('Market Share (%)');
+
+  // Render axes with current zoom
+  renderView();
+
+  // Unique key: in drill-down, prefix with brand/model to avoid collisions
+  const keyFn = d => isYearView ? (d.brand + '/' + d.model + '/' + d.label) : (isDrillDown ? (d.brand + '/' + d.label) : d.label);
+
+  // Dots
+  const dots = dotLayer.selectAll('.dot').data(items, keyFn);
+  dots.exit().transition().duration(200).attr('r', 0).remove();
+
+  const enter = dots.enter().append('circle').attr('class', 'dot')
+    .attr('r', 0)
+    .attr('cx', d => xScale(Math.max(d.velocity, 0.001)))
+    .attr('cy', d => yScale(Math.max(d.market_share, 0.0001)));
+
+  const merged = enter.merge(dots);
+
+  merged.transition().duration(400)
+    .attr('cx', d => xScale(Math.max(d.velocity, 0.001)))
+    .attr('cy', d => yScale(Math.max(d.market_share, 0.0001)))
+    .attr('r', d => sizeScale(d.active));
+
+  // Match logic
+  function isMatch(d) {
+    if (!searchTerm) return false;
+    if (d.label.toUpperCase().includes(searchTerm)) return true;
+    if (d.brand && d.brand.toUpperCase().includes(searchTerm)) return true;
+    return false;
+  }
+
+  // Color
+  merged
+    .attr('fill', d => {
+      if (searchTerm && isMatch(d)) return '#ff4444';
+      if (isYearView) return brandColorScale(d.brand + ' ' + d.model);
+      if (isDrillDown && d.brand) return brandColorScale(d.brand);
+      return brandColorScale(d.label.charAt(0));
+    })
+    .attr('opacity', d => {
+      if (!searchTerm) return 0.7;
+      return isMatch(d) ? 1.0 : 0.08;
+    })
+    .attr('stroke', d => (searchTerm && isMatch(d)) ? '#fff' : 'none')
+    .attr('stroke-width', d => (searchTerm && isMatch(d)) ? 2 : 0);
+
+  // Sort highlighted to front
+  merged.sort((a, b) => {
+    const aH = searchTerm && isMatch(a) ? 1 : 0;
+    const bH = searchTerm && isMatch(b) ? 1 : 0;
+    return aH - bH;
+  });
+
+  // Labels
+  dotLayer.selectAll('.dot-label').remove();
+  const shareThreshold = d3.quantile(items.map(i => i.market_share).sort(d3.ascending), 0.90) || 0;
+  const labeled = items
+    .filter(d => {
+      if (searchTerm && isMatch(d)) return true;
+      if (searchTerm) return false;
+      return d.market_share > shareThreshold;
+    })
+    .slice(0, 30);
+
+  const labelData = labeled.map(d => ({
+    ...d,
+    displayLabel: isYearView ? (selectedModels.size > 1 ? d.brand + ' ' + d.model + ' ' + d.label : d.label) : (isDrillDown ? (selectedBrands.size > 1 ? d.brand + ' ' + d.label : d.label) : d.label),
+    lx: xScale(Math.max(d.velocity, 0.001)) + sizeScale(d.active) + 4,
+    ly: yScale(Math.max(d.market_share, 0.0001)) + 4,
+  }));
+  labelData.sort((a, b) => b.market_share - a.market_share);
+  const placed = [];
+  const LH = 13;
+  labelData.forEach(d => {
+    let y = d.ly;
+    for (let i = 0; i < 8; i++) {
+      const overlap = placed.some(p => Math.abs(p.lx - d.lx) < 80 && Math.abs(p.ly - y) < LH);
+      if (!overlap) break;
+      y += LH;
+    }
+    d.ly = y;
+    placed.push(d);
+  });
+
+  dotLayer.selectAll('.dot-label').data(labelData, d => d.displayLabel)
+    .enter().append('text')
+    .attr('class', 'dot-label')
+    .attr('x', d => d.lx).attr('y', d => d.ly)
+    .text(d => d.displayLabel)
+    .attr('fill', d => searchTerm && isMatch(d) ? '#ff6b6b' : '#999')
+    .attr('font-size', '11px')
+    .attr('font-weight', d => searchTerm && isMatch(d) ? '600' : '400')
+    .attr('pointer-events', 'none');
+
+  // Tooltip
+  merged
+    .on('mouseover', function(event, d) {
+      const el = d3.select(this);
+      const currentR = +el.attr('r');
+      el.attr('data-orig-r', currentR).attr('r', Math.max(currentR + 3, 8));
+      el.attr('opacity', 1).attr('stroke', '#fff').attr('stroke-width', 2);
+      const brandLine = d.brand ? `<div class="tt-row">Brand: <span class="tt-val">${d.brand}</span></div>` : '';
+      const modelLine = d.model ? `<div class="tt-row">Model: <span class="tt-val">${d.model}</span></div>` : '';
+      const yearLine = isYearView ? `<div class="tt-row">Year: <span class="tt-val">${d.label}</span></div>` : '';
+      const titleLabel = isYearView ? d.brand + ' ' + d.model + ' ' + d.label : d.label;
+      let hintLine = '';
+      if (currentMode === 'brands') hintLine = '<div style="color:#555;font-size:11px;margin-top:4px">Click to drill down · Ctrl+click to select multiple</div>';
+      else if (currentMode === 'models') hintLine = '<div style="color:#555;font-size:11px;margin-top:4px">Click to see years · Ctrl+click to select multiple models</div>';
+      tooltip.style('display', 'block').html(`
+        <div class="tt-label">${titleLabel}</div>
+        ${!isYearView ? brandLine : ''}
+        ${isYearView ? modelLine : ''}
+        ${yearLine}
+        <div class="tt-row">Active fleet: <span class="tt-val">${d.active.toLocaleString()}</span></div>
+        <div class="tt-row">Transfers: <span class="tt-val">${d.transfers.toLocaleString()}</span></div>
+        <div class="tt-row">Monthly velocity: <span class="tt-val">${d.velocity.toFixed(3)}%</span></div>
+        <div class="tt-row">Market share: <span class="tt-val">${d.market_share.toFixed(4)}%</span></div>
+        ${hintLine}
+      `);
+    })
+    .on('mousemove', function(event) {
+      const container = document.querySelector('.chart-container');
+      const rect = container.getBoundingClientRect();
+      tooltip.style('left', (event.clientX - rect.left + 14) + 'px').style('top', (event.clientY - rect.top - 14) + 'px');
+    })
+    .on('mouseout', function(event, d) {
+      const el = d3.select(this);
+      const origR = +el.attr('data-orig-r') || sizeScale(d.active);
+      el.attr('r', origR);
+      const highlighted = searchTerm && isMatch(d);
+      el.attr('opacity', highlighted ? 0.9 : (searchTerm ? 0.08 : 0.7))
+        .attr('stroke', highlighted ? '#fff' : 'none')
+        .attr('stroke-width', highlighted ? 2 : 0);
+      tooltip.style('display', 'none');
+    });
+
+  // Click handler for drill-down
+  merged.on('click', function(event, d) {
+    event.stopPropagation();
+    if (currentMode === 'brands') {
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        if (selectedBrands.has(d.label)) {
+          selectedBrands.delete(d.label);
+        } else {
+          selectedBrands.add(d.label);
+        }
+        updateFilterBar();
+        dotLayer.selectAll('.dot')
+          .attr('stroke', dd => selectedBrands.has(dd.label) ? '#5b8def' : 'none')
+          .attr('stroke-width', dd => selectedBrands.has(dd.label) ? 3 : 0);
+      } else {
+        if (selectedBrands.size > 0) {
+          selectedBrands.add(d.label);
+        } else {
+          selectedBrands.clear();
+          selectedBrands.add(d.label);
+        }
+        setMode('models');
+        updateFilterBar();
+        update();
+      }
+    } else if (currentMode === 'models') {
+      const modelKey = d.brand + ' ' + d.label;
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        if (selectedModels.has(modelKey)) {
+          selectedModels.delete(modelKey);
+        } else {
+          selectedModels.add(modelKey);
+        }
+        updateFilterBar();
+        dotLayer.selectAll('.dot')
+          .attr('stroke', dd => selectedModels.has(dd.brand + ' ' + dd.label) ? '#5b8def' : 'none')
+          .attr('stroke-width', dd => selectedModels.has(dd.brand + ' ' + dd.label) ? 3 : 0);
+      } else {
+        if (selectedModels.size > 0) {
+          selectedModels.add(modelKey);
+        } else {
+          selectedModels.clear();
+          selectedModels.add(modelKey);
+        }
+        setMode('model_years');
+        updateFilterBar();
+        update();
+      }
+    }
+  });
+
+}
+
+// Click on background to go back one level
+svg.on('click', function(event) {
+  if (event.target === this || event.target.tagName === 'svg') {
+    goBack();
+  }
+});
+
+function goBack() {
+  if (currentMode === 'model_years') {
+    selectedModels.clear();
+    setMode('models');
+  } else if (currentMode === 'models' && selectedBrands.size > 0) {
+    selectedBrands.clear();
+    selectedModels.clear();
+    setMode('brands');
+  } else {
+    // Clear any Ctrl-selections in current view
+    if (selectedBrands.size > 0 || selectedModels.size > 0) {
+      selectedBrands.clear();
+      selectedModels.clear();
+    } else {
+      return; // nothing to do
+    }
+  }
+  updateFilterBar();
+  update();
+}
+
+// Also handle click on the g background
+g.insert('rect', ':first-child')
+  .attr('width', 3000).attr('height', 3000)
+  .attr('x', -margin.left).attr('y', -margin.top)
+  .attr('fill', 'transparent')
+  .on('click', function(event) {
+    goBack();
+  });
+
+// Precompute global axis domains across all periods per dataset
+let globalDomains = {};
+
+function computeGlobalDomains(d) {
+  const defaultMinActive = 500;
+  const datasets = { brands: d.brands, models: d.models, model_years: d.model_years };
+  for (const [name, periods] of Object.entries(datasets)) {
+    if (!periods) continue;
+    let allVel = [], allShare = [], allActive = [];
+    let filtVel = [], filtShare = [];
+    for (const items of Object.values(periods)) {
+      for (const item of items) {
+        if (item.velocity > 0) allVel.push(item.velocity);
+        if (item.market_share > 0) allShare.push(item.market_share);
+        allActive.push(item.active);
+        if (item.active >= defaultMinActive) {
+          if (item.velocity > 0) filtVel.push(item.velocity);
+          if (item.market_share > 0) filtShare.push(item.market_share);
+        }
+      }
+    }
+    allVel.sort(d3.ascending);
+    allShare.sort(d3.ascending);
+    filtVel.sort(d3.ascending);
+    filtShare.sort(d3.ascending);
+    globalDomains[name] = {
+      velMin: d3.quantile(allVel, 0.005) || 0.001,
+      velMax: d3.quantile(allVel, 0.995) || 10,
+      shareMin: d3.quantile(allShare, 0.005) || 0.001,
+      shareMax: d3.quantile(allShare, 0.995) || 10,
+      activeMin: d3.min(allActive) || 1,
+      activeMax: d3.max(allActive) || 1000,
+      velMedian: d3.median(filtVel) || d3.median(allVel) || 1,
+      shareMedian: d3.median(filtShare) || d3.median(allShare) || 0.1,
+    };
+  }
+}
+
+// Load data
+d3.json('viz_data.json?v=' + Date.now()).then(d => {
+  data = d;
+  computeGlobalDomains(d);
+  const slider = document.getElementById('period-slider');
+  slider.max = data.periods.length - 1;
+  slider.value = data.periods.length - 1;
+  update();
+});
+
+// Zoom handlers
+attachZoomHandlers();
+
+// Double-click to reset zoom
+document.getElementById('chart').addEventListener('dblclick', function(e) {
+  if (!baseXDomain) return;
+  e.preventDefault();
+  baseXScale.domain(baseXDomain.slice());
+  baseYScale.domain(baseYDomain.slice());
+  renderView();
+});
+
+// Event listeners
+document.getElementById('period-slider').addEventListener('input', update);
+document.getElementById('min-active').addEventListener('change', update);
+document.getElementById('search').addEventListener('input', update);
+
+document.querySelectorAll('#view-toggle .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    if (this.dataset.mode === 'brands') {
+      selectedBrands.clear();
+      selectedModels.clear();
+      updateFilterBar();
+    }
+    setMode(this.dataset.mode);
+    update();
+  });
+});
+
+document.querySelectorAll('#scale-toggle .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    this.parentElement.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentScale = this.dataset.scale;
+    update();
+  });
+});
+
+// Play animation
+document.getElementById('play-btn').addEventListener('click', function() {
+  const slider = document.getElementById('period-slider');
+  if (playing) {
+    clearInterval(playInterval);
+    playing = false;
+    this.textContent = '▶ Play';
+    return;
+  }
+  playing = true;
+  this.textContent = '⏸ Pause';
+  slider.value = 0;
+  update();
+  playInterval = setInterval(() => {
+    let v = +slider.value + 1;
+    if (v > +slider.max) {
+      clearInterval(playInterval);
+      playing = false;
+      document.getElementById('play-btn').textContent = '▶ Play';
+      return;
+    }
+    slider.value = v;
+    update();
+  }, 600);
+});
+</script>
+</body>
+</html>

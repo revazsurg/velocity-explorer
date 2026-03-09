@@ -55,6 +55,10 @@ svg { overflow: visible; }
 .tooltip .tt-label { font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 4px; }
 .tooltip .tt-row { color: #aaa; }
 .tooltip .tt-val { color: #5b8def; font-weight: 500; }
+.tt-chart { margin-top: 8px; border-top: 1px solid #2a2d35; padding-top: 6px; }
+.tt-chart-legend { display: flex; gap: 12px; font-size: 10px; color: #888; margin-bottom: 2px; }
+.tt-chart-legend span { display: flex; align-items: center; gap: 3px; }
+.tt-chart-legend .swatch { width: 12px; height: 2px; display: inline-block; }
 
 .axis-label { fill: #888; font-size: 13px; font-weight: 500; }
 .grid line { stroke: #1e2028; }
@@ -475,6 +479,96 @@ function setMode(mode) {
   }
 }
 
+// --- Time series for tooltip sparkline ---
+function getTimeSeries(d) {
+  if (!data) return [];
+  const isYearView = currentMode === 'model_years';
+  const isModelView = currentMode === 'models';
+  const datasetKey = isYearView ? 'model_years' : (isModelView ? 'models' : 'brands');
+  const dataset = data[datasetKey];
+  if (!dataset) return [];
+
+  const series = [];
+  data.periods.forEach((p, i) => {
+    const key = periodKey(p);
+    const items = dataset[key] || [];
+    let match;
+    if (isYearView) {
+      match = items.find(x => x.brand === d.brand && x.model === d.model && x.label === d.label);
+    } else if (isModelView) {
+      match = items.find(x => x.brand === d.brand && x.label === d.label);
+    } else {
+      match = items.find(x => x.label === d.label);
+    }
+    series.push({
+      idx: i,
+      period: p,
+      velocity: match ? match.velocity : null,
+      market_share: match ? match.market_share : null,
+    });
+  });
+  return series;
+}
+
+function buildSparkline(series, currentIdx) {
+  const W = 240, H = 70, pad = { t: 4, r: 4, b: 14, l: 4 };
+  const w = W - pad.l - pad.r, h = H - pad.t - pad.b;
+
+  const velPts = series.filter(s => s.velocity != null);
+  const sharePts = series.filter(s => s.market_share != null);
+  if (velPts.length < 2 && sharePts.length < 2) return '';
+
+  const xMin = 0, xMax = series.length - 1;
+  const sx = (idx) => pad.l + (idx / (xMax || 1)) * w;
+
+  // Velocity scale
+  const vels = velPts.map(s => s.velocity);
+  const vMin = Math.min(...vels) * 0.9, vMax = Math.max(...vels) * 1.1;
+  const syV = (v) => pad.t + h - ((v - vMin) / ((vMax - vMin) || 1)) * h;
+
+  // Market share scale
+  const shares = sharePts.map(s => s.market_share);
+  const sMin = Math.min(...shares) * 0.9, sMax = Math.max(...shares) * 1.1;
+  const syS = (v) => pad.t + h - ((v - sMin) / ((sMax - sMin) || 1)) * h;
+
+  // Build path for velocity
+  let velPath = '';
+  velPts.forEach((s, i) => {
+    velPath += (i === 0 ? 'M' : 'L') + sx(s.idx).toFixed(1) + ',' + syV(s.velocity).toFixed(1);
+  });
+
+  // Build path for market share
+  let sharePath = '';
+  sharePts.forEach((s, i) => {
+    sharePath += (i === 0 ? 'M' : 'L') + sx(s.idx).toFixed(1) + ',' + syS(s.market_share).toFixed(1);
+  });
+
+  // Current period marker
+  const cx = sx(currentIdx);
+  const curVel = series[currentIdx]?.velocity;
+  const curShare = series[currentIdx]?.market_share;
+
+  // Year labels
+  const firstYear = series[0]?.period?.year || '';
+  const lastYear = series[series.length - 1]?.period?.year || '';
+
+  let svg = `<svg width="${W}" height="${H}" style="display:block">`;
+  // Current period line
+  svg += `<line x1="${cx}" x2="${cx}" y1="${pad.t}" y2="${pad.t + h}" stroke="#ffffff" stroke-width="1" opacity="0.2"/>`;
+  // Velocity line
+  if (velPath) svg += `<path d="${velPath}" fill="none" stroke="#5b8def" stroke-width="1.5" opacity="0.9"/>`;
+  // Market share line
+  if (sharePath) svg += `<path d="${sharePath}" fill="none" stroke="#4ecdc4" stroke-width="1.5" opacity="0.9"/>`;
+  // Current period dots
+  if (curVel != null) svg += `<circle cx="${cx}" cy="${syV(curVel)}" r="3" fill="#5b8def"/>`;
+  if (curShare != null) svg += `<circle cx="${cx}" cy="${syS(curShare)}" r="3" fill="#4ecdc4"/>`;
+  // Year labels
+  svg += `<text x="${pad.l}" y="${H - 1}" fill="#555" font-size="9" text-anchor="start">${firstYear}</text>`;
+  svg += `<text x="${W - pad.r}" y="${H - 1}" fill="#555" font-size="9" text-anchor="end">${lastYear}</text>`;
+  svg += `</svg>`;
+  return svg;
+}
+
 // --- Data ---
 function getItems() {
   if (!data) return [];
@@ -645,6 +739,16 @@ function update() {
       let hintLine = '';
       if (currentMode === 'brands') hintLine = '<div style="color:#555;font-size:11px;margin-top:4px">Click to drill down · Ctrl+click to select multiple</div>';
       else if (currentMode === 'models') hintLine = '<div style="color:#555;font-size:11px;margin-top:4px">Click to see years · Ctrl+click to select multiple models</div>';
+      const currentIdx = +document.getElementById('period-slider').value;
+      const ts = getTimeSeries(d);
+      const sparkline = buildSparkline(ts, currentIdx);
+      const chartHtml = sparkline ? `<div class="tt-chart">
+        <div class="tt-chart-legend">
+          <span><span class="swatch" style="background:#5b8def"></span>Velocity</span>
+          <span><span class="swatch" style="background:#4ecdc4"></span>Market Share</span>
+        </div>
+        ${sparkline}
+      </div>` : '';
       tooltip.style('display', 'block').html(`
         <div class="tt-label">${titleLabel}</div>
         ${!isYearView ? brandLine : ''}
@@ -654,6 +758,7 @@ function update() {
         <div class="tt-row">Transfers: <span class="tt-val">${d.transfers.toLocaleString()}</span></div>
         <div class="tt-row">Monthly velocity: <span class="tt-val">${d.velocity.toFixed(3)}%</span></div>
         <div class="tt-row">Market share: <span class="tt-val">${d.market_share.toFixed(4)}%</span></div>
+        ${chartHtml}
         ${hintLine}
       `);
     })
